@@ -1,0 +1,35 @@
+{
+  "name": "lark-ai-bot",
+  "description": "Lark Bot с интеграцией ИИ для помощи в планировании и организации",
+  "runtime": "nodejs18",
+  "build": {
+    "commands": [
+      "npm install"
+    ]
+  },
+  "deploy": {
+    "commands": [
+      "npm run build"
+    ]
+  },
+  "environment": {
+    "NODE_ENV": "production",
+    "PORT": "8000"
+  },
+  "routes": [
+    {
+      "path": "/",
+      "handler": "src/server.js"
+    },
+    {
+      "path": "/webhook",
+      "handler": "src/server.js",
+      "methods": ["POST"]
+    },
+    {
+      "path": "/health",
+      "handler": "src/server.js",
+      "methods": ["GET"]
+    }
+  ]
+}

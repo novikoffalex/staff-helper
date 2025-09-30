@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: lark-ai-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: LARK_APP_ID
+        sync: false
+      - key: LARK_APP_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEBHOOK_VERIFICATION_TOKEN
+        sync: false
+      - key: LARK_WEBHOOK_URL
+        sync: false

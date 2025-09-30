@@ -1,0 +1,23 @@
+site: stuffhelper
+domain: stuffhelper.your-domain.com
+php_version: 8.4
+webroot: public
+directory: /home/forge/stuffhelper
+
+# Environment variables
+env:
+  LARK_APP_ID: "your_lark_app_id"
+  LARK_APP_SECRET: "your_lark_app_secret"
+  LARK_WEBHOOK_URL: "https://stuffhelper.your-domain.com/webhook.php"
+  OPENAI_API_KEY: "your_openai_api_key"
+  OPENAI_MODEL: "gpt-4"
+  WEBHOOK_VERIFICATION_TOKEN: "your_verification_token"
+  NODE_ENV: "production"
+
+# Nginx configuration
+nginx:
+  - "location / { try_files \$uri \$uri/ /index.php?\$query_string; }"
+  - "location ~ \.php$ { fastcgi_pass unix:/var/run/php/php8.4-fpm.sock; fastcgi_index index.php; fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name; include fastcgi_params; }"
+
+# SSL
+ssl: true

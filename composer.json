@@ -1,0 +1,11 @@
+{
+  "name": "stuffhelper/lark-ai-bot",
+  "description": "Lark AI Bot with OpenAI integration",
+  "type": "project",
+  "require": {
+    "php": ">=8.0"
+  },
+  "scripts": {
+    "start": "php -S 0.0.0.0:$PORT"
+  }
+}
