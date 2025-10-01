@@ -64,9 +64,6 @@ try {
                 echo json_encode(['status' => 'ok', 'message' => 'Voice transcription failed']);
                 exit;
             }
-            
-            // Отправляем что мы поняли из голоса
-            sendTelegramMessage($chatId, "🎤 Распознал: \"{$userMessage}\"");
         } else {
             sendTelegramMessage($chatId, "🤖 Я понимаю только текстовые и голосовые сообщения.");
             echo json_encode(['status' => 'ok', 'message' => 'Unsupported message type']);
