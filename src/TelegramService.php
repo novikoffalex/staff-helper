@@ -94,6 +94,21 @@ class TelegramService
     }
     
     /**
+     * Получает информацию о webhook
+     */
+    public function getWebhookInfo()
+    {
+        $url = $this->apiUrl . '/getWebhookInfo';
+        $response = $this->makeRequest($url);
+        
+        if (!$response['ok']) {
+            throw new Exception('Failed to get webhook info: ' . $response['description']);
+        }
+        
+        return $response['result'];
+    }
+    
+    /**
      * Выполняет HTTP запрос
      */
     private function makeRequest($url, $data = null)
