@@ -3,7 +3,11 @@
   "description": "Lark AI Bot with OpenAI integration",
   "type": "project",
   "require": {
-    "php": ">=8.0"
+    "php": ">=8.0",
+    "ext-pdo": "*",
+    "ext-pdo_pgsql": "*",
+    "ext-curl": "*",
+    "ext-json": "*"
   },
   "scripts": {
     "start": "php -S 0.0.0.0:$PORT"
