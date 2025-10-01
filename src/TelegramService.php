@@ -38,6 +38,27 @@ class TelegramService
     }
     
     /**
+     * Отправляет действие "печатает..."
+     */
+    public function sendChatAction($chatId, $action = 'typing')
+    {
+        $url = $this->apiUrl . '/sendChatAction';
+        
+        $data = [
+            'chat_id' => $chatId,
+            'action' => $action
+        ];
+        
+        $response = $this->makeRequest($url, $data);
+        
+        if (!$response['ok']) {
+            error_log('Failed to send chat action: ' . $response['description']);
+        }
+        
+        return $response;
+    }
+    
+    /**
      * Устанавливает webhook
      */
     public function setWebhook($webhookUrl)
