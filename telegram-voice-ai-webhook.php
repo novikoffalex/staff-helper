@@ -11,40 +11,53 @@ if (file_exists('.env')) {
     }
 }
 
-// Подключаемся к базе данных
-$dbPath = getenv('DATABASE_URL') ? parse_url(getenv('DATABASE_URL'))['path'] ?? '/tmp/database.sqlite' : '/tmp/database.sqlite';
-$db = new PDO("sqlite:$dbPath");
-$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+// Подключаемся к базе данных (временно отключаем для тестирования)
+try {
+    $dbPath = '/tmp/database.sqlite';
+    $db = new PDO("sqlite:$dbPath");
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $dbEnabled = true;
+} catch (Exception $e) {
+    error_log("Database error: " . $e->getMessage());
+    $dbEnabled = false;
+}
 
-// Создаем таблицы если их нет
-$db->exec("CREATE TABLE IF NOT EXISTS telegram_users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE,
-    first_name TEXT,
-    last_name TEXT,
-    username TEXT,
-    is_bot BOOLEAN DEFAULT 0,
-    language_code TEXT,
-    is_active BOOLEAN DEFAULT 1,
-    last_seen_at DATETIME,
-    user_context TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)");
+// Создаем таблицы если их нет (только если база работает)
+if ($dbEnabled) {
+    try {
+        $db->exec("CREATE TABLE IF NOT EXISTS telegram_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE,
+            first_name TEXT,
+            last_name TEXT,
+            username TEXT,
+            is_bot BOOLEAN DEFAULT 0,
+            language_code TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            last_seen_at DATETIME,
+            user_context TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
 
-$db->exec("CREATE TABLE IF NOT EXISTS conversation_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_user_id INTEGER,
-    telegram_message_id INTEGER,
-    message_type TEXT DEFAULT 'text',
-    message_content TEXT,
-    ai_response TEXT,
-    message_metadata TEXT,
-    processed_at DATETIME,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (telegram_user_id) REFERENCES telegram_users (id)
-)");
+        $db->exec("CREATE TABLE IF NOT EXISTS conversation_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_user_id INTEGER,
+            telegram_message_id INTEGER,
+            message_type TEXT DEFAULT 'text',
+            message_content TEXT,
+            ai_response TEXT,
+            message_metadata TEXT,
+            processed_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (telegram_user_id) REFERENCES telegram_users (id)
+        )");
+    } catch (Exception $e) {
+        error_log("Table creation error: " . $e->getMessage());
+        $dbEnabled = false;
+    }
+}
 
 // Получаем данные от Telegram
 $input = file_get_contents('php://input');
@@ -78,29 +91,37 @@ try {
         
         error_log("Processing message from {$userName}");
         
-        // Находим или создаем пользователя
-        $stmt = $db->prepare("SELECT * FROM telegram_users WHERE telegram_id = ?");
-        $stmt->execute([$from['id']]);
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$user) {
-            $stmt = $db->prepare("INSERT INTO telegram_users (telegram_id, first_name, last_name, username, is_bot, language_code, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $from['id'],
-                $from['first_name'] ?? null,
-                $from['last_name'] ?? null,
-                $from['username'] ?? null,
-                $from['is_bot'] ?? false,
-                $from['language_code'] ?? null,
-                date('Y-m-d H:i:s')
-            ]);
-            $userId = $db->lastInsertId();
-            error_log("Created new user: $userId");
-        } else {
-            $userId = $user['id'];
-            $stmt = $db->prepare("UPDATE telegram_users SET last_seen_at = ? WHERE id = ?");
-            $stmt->execute([date('Y-m-d H:i:s'), $userId]);
-            error_log("Updated existing user: $userId");
+        // Находим или создаем пользователя (если база работает)
+        $userId = null;
+        if ($dbEnabled) {
+            try {
+                $stmt = $db->prepare("SELECT * FROM telegram_users WHERE telegram_id = ?");
+                $stmt->execute([$from['id']]);
+                $user = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$user) {
+                    $stmt = $db->prepare("INSERT INTO telegram_users (telegram_id, first_name, last_name, username, is_bot, language_code, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([
+                        $from['id'],
+                        $from['first_name'] ?? null,
+                        $from['last_name'] ?? null,
+                        $from['username'] ?? null,
+                        $from['is_bot'] ?? false,
+                        $from['language_code'] ?? null,
+                        date('Y-m-d H:i:s')
+                    ]);
+                    $userId = $db->lastInsertId();
+                    error_log("Created new user: $userId");
+                } else {
+                    $userId = $user['id'];
+                    $stmt = $db->prepare("UPDATE telegram_users SET last_seen_at = ? WHERE id = ?");
+                    $stmt->execute([date('Y-m-d H:i:s'), $userId]);
+                    error_log("Updated existing user: $userId");
+                }
+            } catch (Exception $e) {
+                error_log("Database user error: " . $e->getMessage());
+                $userId = null;
+            }
         }
         
         // Отправляем "печатает..."
@@ -147,32 +168,45 @@ try {
             exit;
         }
         
-        // Сохраняем сообщение пользователя
-        $stmt = $db->prepare("INSERT INTO conversation_messages (telegram_user_id, telegram_message_id, message_type, message_content) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$userId, $message['message_id'], $messageType, $userMessage]);
-        $messageId = $db->lastInsertId();
-        
-        // Получаем историю разговора (последние 5 сообщений)
-        $stmt = $db->prepare("SELECT message_content, ai_response FROM conversation_messages WHERE telegram_user_id = ? ORDER BY created_at DESC LIMIT 5");
-        $stmt->execute([$userId]);
-        $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+        // Сохраняем сообщение и получаем историю (если база работает)
         $conversationHistory = [];
-        foreach (array_reverse($history) as $msg) {
-            if ($msg['message_content']) {
-                $conversationHistory[] = ['role' => 'user', 'content' => $msg['message_content']];
-            }
-            if ($msg['ai_response']) {
-                $conversationHistory[] = ['role' => 'assistant', 'content' => $msg['ai_response']];
+        if ($dbEnabled && $userId) {
+            try {
+                // Сохраняем сообщение пользователя
+                $stmt = $db->prepare("INSERT INTO conversation_messages (telegram_user_id, telegram_message_id, message_type, message_content) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$userId, $message['message_id'], $messageType, $userMessage]);
+                $messageId = $db->lastInsertId();
+                
+                // Получаем историю разговора (последние 5 сообщений)
+                $stmt = $db->prepare("SELECT message_content, ai_response FROM conversation_messages WHERE telegram_user_id = ? ORDER BY created_at DESC LIMIT 5");
+                $stmt->execute([$userId]);
+                $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                foreach (array_reverse($history) as $msg) {
+                    if ($msg['message_content']) {
+                        $conversationHistory[] = ['role' => 'user', 'content' => $msg['message_content']];
+                    }
+                    if ($msg['ai_response']) {
+                        $conversationHistory[] = ['role' => 'assistant', 'content' => $msg['ai_response']];
+                    }
+                }
+            } catch (Exception $e) {
+                error_log("Database message error: " . $e->getMessage());
             }
         }
         
         // Получаем ответ от AI
         $aiResponse = getAIResponse($userMessage, $userName, $conversationHistory);
         
-        // Сохраняем ответ AI
-        $stmt = $db->prepare("UPDATE conversation_messages SET ai_response = ?, processed_at = ? WHERE id = ?");
-        $stmt->execute([$aiResponse, date('Y-m-d H:i:s'), $messageId]);
+        // Сохраняем ответ AI (если база работает)
+        if ($dbEnabled && isset($messageId)) {
+            try {
+                $stmt = $db->prepare("UPDATE conversation_messages SET ai_response = ?, processed_at = ? WHERE id = ?");
+                $stmt->execute([$aiResponse, date('Y-m-d H:i:s'), $messageId]);
+            } catch (Exception $e) {
+                error_log("Database AI response error: " . $e->getMessage());
+            }
+        }
         
         // Отправляем ответ в Telegram
         sendTelegramMessage($chatId, $aiResponse);
