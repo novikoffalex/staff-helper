@@ -145,8 +145,22 @@ try {
         }
         // Обрабатываем голосовые сообщения
         elseif (isset($message['voice'])) {
-            $userMessage = "🎤 [Голосовое сообщение]";
+            $voice = $message['voice'];
+            $fileId = $voice['file_id'];
+            
+            error_log("Processing voice message: " . $fileId);
+            
+            // Распознаем голосовое сообщение
+            $userMessage = transcribeVoiceMessage($fileId);
+            
+            if (!$userMessage) {
+                sendTelegramMessage($chatId, "🤖 Извините, не смог распознать голосовое сообщение. Попробуйте еще раз или напишите текстом.");
+                echo json_encode(['status' => 'ok', 'message' => 'Voice transcription failed']);
+                exit;
+            }
+            
             $messageType = 'voice';
+            error_log("Voice transcribed: " . $userMessage);
         }
         else {
             sendTelegramMessage($chatId, "🤖 Я понимаю только текстовые и голосовые сообщения.");
@@ -314,5 +328,88 @@ function getAIResponse($userMessage, $userName, $conversationHistory = []) {
     
     error_log("Unexpected OpenAI response: " . $response);
     return "🤖 Извините, не могу обработать ваш запрос.";
+}
+
+/**
+ * Распознает голосовое сообщение через OpenAI Whisper
+ */
+function transcribeVoiceMessage($fileId) {
+    $botToken = getenv('TELEGRAM_BOT_TOKEN');
+    $openaiKey = getenv('OPENAI_API_KEY');
+    
+    if (!$openaiKey) {
+        error_log("OpenAI API key not set");
+        return false;
+    }
+    
+    try {
+        // Получаем информацию о файле
+        $fileUrl = "https://api.telegram.org/bot{$botToken}/getFile?file_id={$fileId}";
+        $fileResponse = file_get_contents($fileUrl);
+        $fileData = json_decode($fileResponse, true);
+        
+        if (!$fileData['ok']) {
+            error_log("Failed to get file info: " . $fileResponse);
+            return false;
+        }
+        
+        $filePath = $fileData['result']['file_path'];
+        $voiceUrl = "https://api.telegram.org/file/bot{$botToken}/{$filePath}";
+        
+        // Скачиваем голосовой файл
+        $voiceData = file_get_contents($voiceUrl);
+        if (!$voiceData) {
+            error_log("Failed to download voice file");
+            return false;
+        }
+        
+        // Сохраняем временно
+        $tempFile = tempnam(sys_get_temp_dir(), 'voice_') . '.ogg';
+        file_put_contents($tempFile, $voiceData);
+        
+        // Отправляем в OpenAI Whisper
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, 'https://api.openai.com/v1/audio/transcriptions');
+        curl_setopt($ch, CURLOPT_POST, true);
+        
+        $postFields = [
+            'file' => new CURLFile($tempFile, 'audio/ogg', 'voice.ogg'),
+            'model' => 'whisper-1',
+            'language' => 'ru'
+        ];
+        
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $openaiKey
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        // Удаляем временный файл
+        unlink($tempFile);
+        
+        if ($httpCode !== 200) {
+            error_log("Whisper API error: HTTP {$httpCode}, Response: {$response}");
+            return false;
+        }
+        
+        $result = json_decode($response, true);
+        
+        if (isset($result['text'])) {
+            error_log("Voice transcribed: " . $result['text']);
+            return trim($result['text']);
+        } else {
+            error_log("No transcription in Whisper response: " . $response);
+            return false;
+        }
+        
+    } catch (Exception $e) {
+        error_log("Voice transcription error: " . $e->getMessage());
+        return false;
+    }
 }
 ?>
